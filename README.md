@@ -1,3 +1,4 @@
-# YouTube Music Stream Chatbot
+# YouTube Music Stream Overlay
 
-Monitors the currently-playing song on YouTube Music and responds in YouTube stream chat.
+Connects to Chromium-based browsers using CDP, looks for YouTube music, and uses that to populate an [overlay](./web/)
+with the currently playing song.
