@@ -5,6 +5,7 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs/promises');
 const { delimiter, join } = require('node:path');
 const { WebSocketServer } = require('ws');
+const { startServer } = require('./server');
 
 const BROWSERS = [
   {
@@ -162,7 +163,11 @@ screen.key(['c', 'C'], () => {
 });
 screen.key(['b', 'B'], () => launch());
 screen.key(['y', 'Y'], () => launch('https://music.youtube.com'));
-screen.key(['?', '/'], () => log('[B]rowser  [Y]T Music  [C]lear  [Q]uit', 'info'));
+screen.key(['o', 'O'], () => {
+  launch('http://127.42.0.69:8080');
+  log('Opening overlay in browser', 'info');
+});
+screen.key(['?', '/'], () => log('[B]rowser  [Y]T Music  [O]verlay  [C]lear  [Q]uit', 'info'));
 
 function log(msg, type = 'info') {
   const color = { info: 'cyan', ok: 'green', warn: 'yellow', error: 'red' }[type] || 'white';
@@ -342,6 +347,10 @@ function startPolling() {
 
 (async () => {
   log('YT Music Overlay starting…');
+
+  startServer();
+  log('Overlay server started on {bold}http://127.42.0.69:8080', 'info');
+
   const browsers = await findAllBrowsers();
 
   if (browsers.length === 0) {
@@ -349,7 +358,7 @@ function startPolling() {
     state.browserPath = null;
   } else if (browsers.length === 1) {
     state.browserPath = browsers[0].path;
-    log(`Using browser: ${browsers[0].name} (${browsers[0].path})`, 'ok');
+    log(`Found browser: ${browsers[0].name} (${browsers[0].path})`, 'ok');
   } else {
     log(`Found ${browsers.length} browsers, please select one...`, 'info');
     screen.render();

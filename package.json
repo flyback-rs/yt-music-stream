@@ -1,6 +1,6 @@
 {
   "name": "@aubury/yt-music-stream",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "main": "index.js",
   "type": "commonjs",
   "bin": {
@@ -29,6 +29,7 @@
   },
   "files": [
     "index.js",
+    "server.js",
     "README.md",
     "web/*"
   ]
