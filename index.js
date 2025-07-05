@@ -6,39 +6,119 @@ const fs = require('node:fs/promises');
 const { delimiter, join } = require('node:path');
 const { WebSocketServer } = require('ws');
 
-const CANDIDATES = {
-  win32: ['chrome.exe', 'msedge.exe', 'chromium.exe', 'brave.exe'],
-  darwin: [
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
-    '/Applications/Chromium.app/Contents/MacOS/Chromium'
-  ],
-  linux: ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'brave-browser', 'microsoft-edge']
-}[process.platform];
-
-async function findBrowser() {
-  const dirs = (process.env.PATH || '').split(delimiter);
-  for (const exe of CANDIDATES) {
-    if (exe.startsWith('/Applications')) {
-      try {
-        await fs.access(exe, fs.constants.X_OK);
-        return exe;
-      } catch {
-        // not found
-        continue;
-      }
+const BROWSERS = [
+  {
+    name: 'Microsoft Edge',
+    paths: {
+      win32: { exe: 'msedge.exe', dir: 'Microsoft\\Edge\\Application' },
+      darwin: '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+      linux: 'microsoft-edge'
     }
-    for (const dir of dirs) {
-      const browserPath = join(dir, exe);
+  },
+  {
+    name: 'Google Chrome',
+    paths: {
+      win32: { exe: 'chrome.exe', dir: 'Google\\Chrome\\Application' },
+      darwin: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      linux: 'google-chrome'
+    }
+  },
+  {
+    name: 'Chromium',
+    paths: {
+      win32: { exe: 'chromium.exe', dir: 'Chromium\\Application' },
+      darwin: '/Applications/Chromium.app/Contents/MacOS/Chromium',
+      linux: 'chromium-browser'
+    }
+  },
+  {
+    name: 'Brave',
+    paths: {
+      win32: { exe: 'brave.exe', dir: 'BraveSoftware\\Brave-Browser\\Application' },
+      darwin: '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
+      linux: 'brave-browser'
+    }
+  }
+];
+
+async function findAllBrowsers() {
+  const found = [];
+  const pathDirs = (process.env.PATH || '').split(delimiter);
+
+  const getCandidatePaths = (pathInfo) => {
+    if (process.platform === 'win32') {
+      const { exe, dir } = pathInfo;
+      const programFiles = [process.env.PROGRAMFILES, process.env['PROGRAMFILES(X86)'], process.env.PROGRAMW6432].filter(Boolean);
+
+      return [...programFiles.map((base) => join(base, dir, exe)), ...pathDirs.map((pathDir) => join(pathDir, exe))];
+    } else if (process.platform === 'darwin') {
+      return [pathInfo]; // Just the absolute path
+    } else {
+      return pathDirs.map((dir) => join(dir, pathInfo)); // Linux
+    }
+  };
+
+  for (const browser of BROWSERS) {
+    const pathInfo = browser.paths[process.platform];
+    if (!pathInfo) continue;
+
+    const candidates = getCandidatePaths(pathInfo);
+
+    // Try each candidate path until we find one that exists
+    for (const candidatePath of candidates) {
       try {
-        await fs.access(browserPath, fs.constants.X_OK);
-        return browserPath;
+        await fs.access(candidatePath, fs.constants.X_OK);
+        found.push({ path: candidatePath, name: browser.name });
+        break; // Found this browser, move to next
       } catch {
-        // not found, that's fine
+        // Try next candidate
       }
     }
   }
-  return null;
+
+  return found;
+}
+
+async function selectBrowser(browsers) {
+  return new Promise((resolve) => {
+    const list = blessed.list({
+      parent: screen,
+      label: ' Select Browser ',
+      border: 'line',
+      top: 'center',
+      left: 'center',
+      width: '60%',
+      height: Math.min(browsers.length + 4, 15),
+      items: browsers.map((b) => `${b.name} - ${b.path}`),
+      keys: true,
+      vi: true,
+      mouse: true,
+      style: {
+        selected: {
+          bg: 'blue',
+          bold: true
+        },
+        border: {
+          fg: 'cyan'
+        }
+      }
+    });
+
+    list.on('select', (item, index) => {
+      list.destroy();
+      screen.render();
+      resolve(browsers[index].path);
+    });
+
+    list.key(['escape', 'q'], () => {
+      list.destroy();
+      screen.render();
+      resolve(null);
+    });
+
+    list.focus();
+    screen.render();
+  });
 }
 
 const screen = blessed.screen({ smartCSR: true, title: 'YT Music Stream Overlay' });
@@ -180,7 +260,7 @@ async function connect() {
     return;
   }
 
-  const yt = targets.find((t) => /https:\/\/music\.youtube\.com\//.test(t.url));
+  const yt = targets.find((t) => /^https:\/\/music\.youtube\.com\/(?!sw\.js$)/.test(t.url));
   if (!yt) {
     if (state.ytTab) log('Music tab closed', 'warn');
     clearTab();
@@ -262,8 +342,27 @@ function startPolling() {
 
 (async () => {
   log('YT Music Overlay starting…');
-  state.browserPath = await findBrowser();
-  state.browserPath ? log(`Discovered browser exe: ${state.browserPath}`, 'ok') : log('No Chromium-based browser in PATH', 'error');
+  const browsers = await findAllBrowsers();
+
+  if (browsers.length === 0) {
+    log('No Chromium-based browser found', 'error');
+    state.browserPath = null;
+  } else if (browsers.length === 1) {
+    state.browserPath = browsers[0].path;
+    log(`Using browser: ${browsers[0].name} (${browsers[0].path})`, 'ok');
+  } else {
+    log(`Found ${browsers.length} browsers, please select one...`, 'info');
+    screen.render();
+
+    const selected = await selectBrowser(browsers);
+    if (selected) {
+      state.browserPath = selected;
+      log(`Selected browser: ${selected}`, 'ok');
+    } else {
+      log('No browser selected', 'warn');
+      state.browserPath = null;
+    }
+  }
 
   drawStatus();
   drawPlaying();
